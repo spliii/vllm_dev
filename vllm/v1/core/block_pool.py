@@ -229,7 +229,7 @@ class BlockPool:
             if block.ref_cnt == 0 and block != self.null_block:
                 self.free_block_queue.remove(block)
             block.incr_ref()
-            block.priority = min(priority, block.priority)
+            # block.priority = min(priority, block.priority)
 
     def free_blocks(self, ordered_blocks: Iterable[KVCacheBlock]) -> None:
         """Free a list of blocks. The blocks should be ordered by their

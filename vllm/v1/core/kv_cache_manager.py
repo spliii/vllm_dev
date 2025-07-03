@@ -267,9 +267,10 @@ class KVCacheManager:
             new_blocks = self.block_pool.get_new_blocks(num_new_blocks, request.request_id, priority)
             req_blocks.extend(new_blocks)
             
-            free_queue = self.block_pool.free_block_queue
-            for block in free_queue.get_all_free_blocks():
-                print(block)
+            # free_queue = self.block_pool.free_block_queue
+            # print(f"Free blocks after allocation -{len(new_blocks)}- for -{request.request_id}- with priority -{priority}-:")
+            # for block in free_queue.get_all_free_blocks():
+            #     print(block)
 
         if not self.enable_caching:
             return new_blocks

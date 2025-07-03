@@ -94,7 +94,6 @@ class Request:
                 sampling_params=request.sampling_params),
             priority=request.evict_priority,
         )
-        )
 
     def append_output_token_ids(
         self,
