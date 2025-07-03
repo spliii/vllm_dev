@@ -235,7 +235,7 @@ class KVCacheManager:
 
         # Touch the computed blocks to make sure they won't be evicted.
         if self.enable_caching:
-            self.block_pool.touch(new_computed_blocks)
+            self.block_pool.touch(new_computed_blocks, request.priority)
         else:
             assert not new_computed_blocks, (
                 "Computed blocks should be empty when "
@@ -263,8 +263,13 @@ class KVCacheManager:
             assert num_new_blocks > 0
 
             # Concatenate the computed block IDs and the new block IDs.
-            new_blocks = self.block_pool.get_new_blocks(num_new_blocks)
+            priority = 2 if request.num_output_tokens > 0 else request.priority
+            new_blocks = self.block_pool.get_new_blocks(num_new_blocks, request.request_id, priority)
             req_blocks.extend(new_blocks)
+            
+            free_queue = self.block_pool.free_block_queue
+            for block in free_queue.get_all_free_blocks():
+                print(block)
 
         if not self.enable_caching:
             return new_blocks

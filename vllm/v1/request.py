@@ -29,6 +29,7 @@ class Request:
         arrival_time: float,
         lora_request: Optional["LoRARequest"] = None,
         structured_output_request: Optional["StructuredOutputRequest"] = None,
+        priority: int = 2,
     ) -> None:
         self.request_id = request_id
         self.sampling_params = sampling_params
@@ -69,6 +70,8 @@ class Request:
         # they should also be updated simultaneously.
         self.output_token_ids = ConstantList(self._output_token_ids)
         self.all_token_ids = ConstantList(self._all_token_ids)
+        
+        self.priority = priority
 
     @classmethod
     def from_engine_core_request(cls, request: EngineCoreRequest) -> "Request":
@@ -89,6 +92,8 @@ class Request:
             lora_request=request.lora_request,
             structured_output_request=StructuredOutputRequest(
                 sampling_params=request.sampling_params),
+            priority=request.evict_priority,
+        )
         )
 
     def append_output_token_ids(

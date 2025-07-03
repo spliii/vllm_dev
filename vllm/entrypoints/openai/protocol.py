@@ -748,6 +748,9 @@ class CompletionRequest(OpenAIBaseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     user: Optional[str] = None
+    
+    # evcition
+    evict_priority: Optional[int] = 2
 
     # doc: begin-completion-sampling-params
     use_beam_search: bool = False

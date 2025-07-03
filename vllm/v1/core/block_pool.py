@@ -5,7 +5,7 @@ from typing import Callable, Optional
 
 from vllm.logger import init_logger
 from vllm.v1.core.kv_cache_utils import (BlockHashType, FreeKVCacheBlockQueue,
-                                         KVCacheBlock,
+                                         MultiPriorityFreeQueue, KVCacheBlock,
                                          generate_block_hash_extra_keys,
                                          hash_block_tokens)
 from vllm.v1.request import Request
@@ -37,7 +37,10 @@ class BlockPool:
         # Free block queue that constructs and manipulates a doubly linked
         # list of free blocks (including eviction candidates when caching is
         # enabled).
-        self.free_block_queue = FreeKVCacheBlockQueue(self.blocks)
+        if True:
+            self.free_block_queue = FreeKVCacheBlockQueue(self.blocks)
+        else:
+            self.free_block_queue = MultiPriorityFreeQueue(self.blocks)
 
         # {block_hash: {block ID: block}}. A cached block is
         # a full block with a block hash that can be used for prefix caching.
@@ -155,7 +158,7 @@ class BlockPool:
             self.cached_block_hash_to_block[block_hash][blk.block_id] = blk
             prev_block_hash_value = block_hash.hash_value
 
-    def get_new_blocks(self, num_blocks: int) -> list[KVCacheBlock]:
+    def get_new_blocks(self, num_blocks: int, request_id: str, priority: int = 2) -> list[KVCacheBlock]:
         """Get new blocks from the free block pool.
 
         Note that we do not check block cache in this function.
@@ -176,6 +179,9 @@ class BlockPool:
             # First allocate blocks.
             curr_block = self.free_block_queue.popleft()
             assert curr_block.ref_cnt == 0
+            
+            curr_block.request_id = request_id
+            curr_block.priority = min(priority, curr_block.priority)
 
             # If the block is cached, evict it.
             if self.enable_caching:
@@ -209,7 +215,7 @@ class BlockPool:
             return True
         return False
 
-    def touch(self, blocks: list[KVCacheBlock]) -> None:
+    def touch(self, blocks: list[KVCacheBlock], priority: int = 2) -> None:
         """Touch a block increases its reference count by 1, and may remove
         the block from the free queue. This is used when a block is hit by
         another request with the same prefix.
@@ -223,6 +229,7 @@ class BlockPool:
             if block.ref_cnt == 0 and block != self.null_block:
                 self.free_block_queue.remove(block)
             block.incr_ref()
+            block.priority = min(priority, block.priority)
 
     def free_blocks(self, ordered_blocks: Iterable[KVCacheBlock]) -> None:
         """Free a list of blocks. The blocks should be ordered by their

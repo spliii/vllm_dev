@@ -202,6 +202,7 @@ class Processor:
         trace_headers: Optional[Mapping[str, str]] = None,
         prompt_adapter_request: Optional[PromptAdapterRequest] = None,
         priority: int = 0,
+        evict_priority: int = 2,
     ) -> tuple[Optional[str], EngineCoreRequest]:
 
         # TODO(woosuk): Support pooling models.
@@ -316,6 +317,7 @@ class Processor:
             eos_token_id=eos_token_id,
             arrival_time=arrival_time,
             lora_request=lora_request,
+            evict_priority=evict_priority,
         )
 
     def _validate_model_inputs(self,

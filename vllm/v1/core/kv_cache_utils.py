@@ -118,6 +118,11 @@ class KVCacheBlock:
     # The hash of the block composed of (block hash, tuple of token IDs).
     # It is only available when the block is full.
     _block_hash: Optional[BlockHashType] = None
+    
+    # The priority of the block. 0 is the highest priority.
+    priority: int = 2
+    # The block is allocated by request_id
+    request_id: Optional[str] = None
 
     # Used to construct a doubly linked list for free blocks.
     # These two attributes should only be manipulated by FreeKVCacheBlockQueue.
@@ -152,10 +157,12 @@ class KVCacheBlock:
         next_block_id = self.next_free_block.block_id \
             if self.next_free_block else None
         return (f"KVCacheBlock(block_id={self.block_id}, "
+                f"priority={self.priority}, "
                 f"ref_cnt={self.ref_cnt}, "
                 f"_block_hash={self._block_hash}, "
                 f"prev_free_block={prev_block_id}, "
-                f"next_free_block={next_block_id})")
+                f"next_free_block={next_block_id}"
+                f"request_id={self.request_id}")
 
 
 class FreeKVCacheBlockQueue:
@@ -261,6 +268,106 @@ class FreeKVCacheBlockQueue:
             ret.append(curr_block)
             curr_block = curr_block.next_free_block
         return ret
+
+
+class MultiPriorityFreeQueue:
+    """A free block queue with multiple priority levels. Blocks are evicted
+    based on their priority level and LRU order within each level.
+    
+    The queue maintains 3 priority levels (0, 1, 2), with level 2 having the
+    highest priority for eviction, followed by level 1, and then level 0.
+    Within each priority level, blocks are managed in LRU order.
+    """
+    
+    def __init__(self, blocks: list[KVCacheBlock]) -> None:
+        # Initialize 3 separate LRU queues for each priority level
+        # 0 max priority, for global share prefix, i.e, shared
+        # 1 medium priority, for local share prefix, i.e, info
+        # 2 low priority, for no share prefix, i.e, outputs, others
+        self.priority_queues = {
+            2: FreeKVCacheBlockQueue([], 2),
+            1: FreeKVCacheBlockQueue([], 1),
+            0: FreeKVCacheBlockQueue([], 0)
+        }
+        
+        # Add each block to the appropriate priority queue
+        for block in blocks:
+            self._add_block_to_priority_queue(block)
+        
+        # Track total number of free blocks
+        self.num_free_blocks = len(blocks)
+    
+    def _add_block_to_priority_queue(self, block: KVCacheBlock) -> None:
+        """Add a block to the appropriate priority queue based on its priority."""
+        if block.priority not in {0, 1, 2}:
+            raise ValueError(f"Invalid block priority: {block.priority}. "
+                           "Must be 0, 1, or 2.")
+            
+        self.priority_queues[block.priority].append(block)
+    
+    def popleft(self) -> KVCacheBlock:
+        """Pop the first free block from the highest priority queue that's not empty.
+        
+        Returns:
+            The first free block from the highest priority non-empty queue.
+        """
+        if self.num_free_blocks == 0:
+            raise ValueError("No free blocks available")
+        
+        # Check priority 2 first
+        if self.priority_queues[2].num_free_blocks > 0:
+            block = self.priority_queues[2].popleft()
+        # Then check priority 1
+        elif self.priority_queues[1].num_free_blocks > 0:
+            block = self.priority_queues[1].popleft()
+        # Finally check priority 0
+        else:
+            block = self.priority_queues[0].popleft()
+        
+        self.num_free_blocks -= 1
+        return block
+    
+    def remove(self, block: KVCacheBlock) -> None:
+        """Remove a block from its current priority queue.
+        
+        Args:
+            block: The block to remove.
+        """
+        if block.priority not in {0, 1, 2}:
+            raise ValueError(f"Invalid block priority: {block.priority}. "
+                           "Must be 0, 1, or 2.")
+            
+        self.priority_queues[block.priority].remove(block)
+        self.num_free_blocks -= 1
+    
+    def append(self, block: KVCacheBlock) -> None:
+        """Put a block back into the appropriate priority queue based on its priority.
+        
+        Args:
+            block: The block to append.
+        """
+        self._add_block_to_priority_queue(block)
+        self.num_free_blocks += 1
+    
+    def get_all_free_blocks(self) -> list[KVCacheBlock]:
+        """Get all free blocks across all priority queues. Mainly used for testing.
+        
+        Returns:
+            A list of all free blocks ordered by priority level and LRU within each level.
+        """
+        # Return blocks starting from highest priority to lowest
+        blocks = []
+        for priority in [2, 1, 0]:  # High to low priority
+            blocks.extend(self.priority_queues[priority].get_all_free_blocks())
+        return blocks
+    
+    def finish_request(self, request_id: str) -> None:
+        """Finish a request."""
+        for block in self.priority_queues[1].get_all_free_blocks():
+            if block.request_id == request_id:
+                block.priority = 2
+                self.priority_queues[1].remove(block)
+                self.priority_queues[2].append(block)
 
 
 def need_extra_keys(request: Request) -> bool:
